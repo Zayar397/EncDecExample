@@ -1,6 +1,7 @@
 ﻿using EncDecExample.WebApi.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Newtonsoft.Json;
 
 namespace EncDecExample.WebApi.Controllers;
@@ -32,7 +33,7 @@ public class BlogController : ControllerBase
             {
                 Username = result.Username,
                 SessionId = Guid.NewGuid().ToString(),
-                SessionExpired = DateTime.Now.AddMinutes(1)
+                SessionExpired = DateTime.Now.AddMinutes(15)
             };
             var jsonStr = JsonConvert.SerializeObject(user);
             var encryptedStr = _encDecService.Encrypt(jsonStr);
@@ -53,12 +54,31 @@ public class BlogController : ControllerBase
     {
         try
         {
-            var json = _encDecService.Decrypt(requestModel.AccessToken);
+            bool hasValue = HttpContext.Request.Headers.TryGetValue("Authorization", out var token);
+            if (hasValue == false)
+            {
+                return Unauthorized("Access token is required.");
+            }
+            var json = _encDecService.Decrypt(token.ToString());
             var user = JsonConvert.DeserializeObject<BlogLoginModel>(json);
             if (user.SessionExpired < DateTime.Now)
             {
                 return Unauthorized("Session is expired.");
             }
+            return Ok(UserData.user);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, ex.ToString());
+        }
+    }
+
+    [ServiceFilter(typeof(ValidationTokenActionFilter))]
+    [HttpPost("UserListWithFilter")]
+    public IActionResult UserListWithFilter(UserListRequestModel requestModel)
+    {
+        try
+        {
             return Ok(UserData.user);
         }
         catch (Exception ex)
@@ -78,7 +98,7 @@ public class BlogLoginResponseModel
 }
 public class UserListRequestModel
 {
-    public string AccessToken { get; set; }
+    public string? AccessToken { get; set; }
 }
 public class BlogLoginModel
 {
@@ -99,4 +119,29 @@ public class UserDto
 {
     public string Username { get; set; }
     public string Password { get; set; }
+}
+public class ValidationTokenActionFilter : IAsyncActionFilter
+{
+    public async Task OnActionExecutionAsync(
+        ActionExecutingContext context, ActionExecutionDelegate next)
+    {
+        // Do something before the action executes.
+        var result = context.HttpContext.Request.Headers.TryGetValue("Authorization", out var token);
+        if (result == false)
+        {
+            context.Result = new UnauthorizedResult();
+            return;
+        }
+
+        var encDecService = context.HttpContext.RequestServices.GetRequiredService<EncDecService>();
+        var json = encDecService.Decrypt(token.ToString());
+        var user = JsonConvert.DeserializeObject<BlogLoginModel>(json);
+        if (user.SessionExpired < DateTime.Now)
+        {
+            context.Result = new UnauthorizedResult();
+            return;
+        }
+        await next();
+        // Do something after the action executes.
+    }
 }
