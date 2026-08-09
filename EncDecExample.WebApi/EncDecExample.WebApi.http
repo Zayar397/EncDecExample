@@ -1,0 +1,6 @@
+@EncDecExample.WebApi_HostAddress = http://localhost:5112
+
+GET {{EncDecExample.WebApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
