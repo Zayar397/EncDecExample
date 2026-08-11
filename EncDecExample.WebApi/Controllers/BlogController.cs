@@ -1,4 +1,5 @@
-﻿using EncDecExample.WebApi.Services;
+﻿using System.Globalization;
+using EncDecExample.WebApi.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
@@ -143,5 +144,59 @@ public class ValidationTokenActionFilter : IAsyncActionFilter
         }
         await next();
         // Do something after the action executes.
+    }
+}
+public class ValidationTokenMiddleware
+{
+    private readonly RequestDelegate _next;
+
+    public ValidationTokenMiddleware(RequestDelegate next)
+    {
+        _next = next;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        //if (context.Request.Path.ToString().ToLower() == "/weatherforecast")
+        //{
+        //    goto Result;
+        //}
+        string requestPath = context.Request.Path.ToString().ToLower();
+        if (allowList.Contains(requestPath))
+        {
+            goto Result;
+        }
+        bool hasVal = context.Request.Headers.TryGetValue("Authorization", out var accessToken);
+        if (!hasVal)
+        {
+            context.Response.StatusCode = 401;
+            return;
+        }
+
+        var encDec = context.RequestServices.GetRequiredService<EncDecService>();
+        var jsonStr = encDec.Encrypt(accessToken.ToString());
+        var resultObj = JsonConvert.DeserializeObject<BlogLoginModel>(jsonStr);
+        if (resultObj.SessionExpired < DateTime.Now)
+        {
+            context.Response.StatusCode = 401;
+            return;
+        }
+    // Call the next delegate/middleware in the pipeline.
+    Result:
+        await _next(context);
+    }
+
+    private string[] allowList =
+    {
+        "/weatherforecast",
+        "/api/blog/login"
+    };
+}
+public static class ValidationTokenMiddlewareExtensions
+{
+    public static IApplicationBuilder UseValidationTokenMiddleware(
+        this IApplicationBuilder app)
+    {
+        return app.UseMiddleware<ValidationTokenMiddleware>();
     }
 }
